@@ -1,5 +1,6 @@
 package com.securetalk.controller;
 
+import com.securetalk.model.Role;
 import com.securetalk.model.User;
 import com.securetalk.model.UserStatus;
 import com.securetalk.payload.response.MessageResponse;
@@ -12,6 +13,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -89,6 +92,32 @@ public class UserController {
         dto.setOnline(user.isOnline());
         dto.setLastSeen(user.getLastSeen());
         dto.setStatus(user.getStatus());
+        
+        // Convertir les rôles
+        List<RoleDto> roleDtos = new ArrayList<>();
+        if (user.getRoles() != null) {
+            roleDtos = user.getRoles().stream()
+                    .map(role -> {
+                        RoleDto roleDto = new RoleDto();
+                        roleDto.setId(role.getId());
+                        roleDto.setName(role.getName().name());
+                        return roleDto;
+                    })
+                    .collect(Collectors.toList());
+        }
+        dto.setRoles(roleDtos);
+        
+        // Ajouter les autres champs
+        dto.setEnabled(true); // Par défaut, tous les utilisateurs sont activés
+        dto.setFirstName(user.getFirstName());
+        dto.setLastName(user.getLastName());
+        
+        // Formater la date de création
+        if (user.getCreatedAt() != null) {
+            DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
+            dto.setCreatedAt(user.getCreatedAt().format(formatter));
+        }
+        
         return dto;
     }
     
@@ -101,6 +130,14 @@ public class UserController {
         private boolean online;
         private java.time.LocalDateTime lastSeen;
         private UserStatus status;
+        private List<RoleDto> roles;
+        private boolean enabled = true;
+        private String firstName;
+        private String lastName;
+        private boolean isPrivate = false;
+        private boolean allowMessages = true;
+        private boolean showOnlineStatus = true;
+        private String createdAt;
         
         // Getters and setters
         public Long getId() { return id; }
@@ -120,6 +157,30 @@ public class UserController {
         
         public UserStatus getStatus() { return status; }
         public void setStatus(UserStatus status) { this.status = status; }
+        
+        public List<RoleDto> getRoles() { return roles; }
+        public void setRoles(List<RoleDto> roles) { this.roles = roles; }
+        
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        
+        public String getFirstName() { return firstName; }
+        public void setFirstName(String firstName) { this.firstName = firstName; }
+        
+        public String getLastName() { return lastName; }
+        public void setLastName(String lastName) { this.lastName = lastName; }
+        
+        public boolean isPrivate() { return isPrivate; }
+        public void setPrivate(boolean isPrivate) { this.isPrivate = isPrivate; }
+        
+        public boolean isAllowMessages() { return allowMessages; }
+        public void setAllowMessages(boolean allowMessages) { this.allowMessages = allowMessages; }
+        
+        public boolean isShowOnlineStatus() { return showOnlineStatus; }
+        public void setShowOnlineStatus(boolean showOnlineStatus) { this.showOnlineStatus = showOnlineStatus; }
+        
+        public String getCreatedAt() { return createdAt; }
+        public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     }
     
     public static class StatusUpdateRequest {
@@ -142,5 +203,16 @@ public class UserController {
         
         public String getNewPassword() { return newPassword; }
         public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
+    }
+    
+    public static class RoleDto {
+        private Integer id;
+        private String name;
+        
+        public Integer getId() { return id; }
+        public void setId(Integer id) { this.id = id; }
+        
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
     }
 }

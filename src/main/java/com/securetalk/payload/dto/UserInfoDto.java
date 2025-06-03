@@ -1,6 +1,6 @@
 package com.securetalk.payload.dto;
 
-import com.securetalk.modelx.User;
+import com.securetalk.model.User;
 import com.securetalk.model.UserStatus;
 
 public class UserInfoDto {

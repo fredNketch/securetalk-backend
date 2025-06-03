@@ -1,5 +1,9 @@
 package com.securetalk.util;
 
+import com.securetalk.model.User;
+import com.securetalk.model.UserKey;
+import com.securetalk.repository.UserKeyRepository;
+import com.securetalk.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +18,7 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Component
 public class EncryptionUtil {
@@ -21,8 +26,11 @@ public class EncryptionUtil {
     private static final int GCM_TAG_LENGTH = 128;
     private static final int GCM_IV_LENGTH = 12;
     
-    // Simulation de stockage des clés pour chaque utilisateur
-    private Map<Long, String> userKeys = new HashMap<>();
+    @Autowired
+    private UserKeyRepository userKeyRepository;
+    
+    @Autowired
+    private UserRepository userRepository;
 
     /**
      * Génère une clé AES-256 pour le chiffrement
@@ -83,9 +91,24 @@ public class EncryptionUtil {
      */
     public String decrypt(String encryptedMessage, String keyStr, String ivStr) {
         try {
+            // Logs pour déboguer
+            System.out.println("Tentative de déchiffrement avec les paramètres suivants:");
+            System.out.println("- Longueur du message chiffré: " + (encryptedMessage != null ? encryptedMessage.length() : "null"));
+            System.out.println("- Longueur de la clé: " + (keyStr != null ? keyStr.length() : "null"));
+            System.out.println("- Longueur de l'IV: " + (ivStr != null ? ivStr.length() : "null"));
+            
+            // Vérification des entrées
+            if (encryptedMessage == null || keyStr == null || ivStr == null) {
+                throw new IllegalArgumentException("Les paramètres de déchiffrement ne peuvent pas être null");
+            }
+            
             byte[] keyBytes = Base64.getDecoder().decode(keyStr);
             byte[] ivBytes = Base64.getDecoder().decode(ivStr);
             byte[] encryptedBytes = Base64.getDecoder().decode(encryptedMessage);
+            
+            System.out.println("- Taille des keyBytes: " + keyBytes.length);
+            System.out.println("- Taille des ivBytes: " + ivBytes.length);
+            System.out.println("- Taille des encryptedBytes: " + encryptedBytes.length);
             
             SecretKey key = new SecretKeySpec(keyBytes, "AES");
             GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH, ivBytes);
@@ -94,8 +117,18 @@ public class EncryptionUtil {
             cipher.init(Cipher.DECRYPT_MODE, key, gcmParameterSpec);
             
             byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
-            return new String(decryptedBytes, StandardCharsets.UTF_8);
+            String result = new String(decryptedBytes, StandardCharsets.UTF_8);
+            System.out.println("Déchiffrement réussi, longueur du résultat: " + result.length());
+            return result;
         } catch (Exception e) {
+            System.err.println("Erreur lors du déchiffrement: " + e.getClass().getName() + ": " + e.getMessage());
+            e.printStackTrace();
+            // Pour les messages existants qui ne peuvent pas être déchiffrés, retourner un message par défaut
+            if (e instanceof javax.crypto.AEADBadTagException || 
+                e instanceof javax.crypto.IllegalBlockSizeException) {
+                System.out.println("Erreur de déchiffrement détectée, retour d'un message par défaut");
+                return "[Message chiffré avec une ancienne clé]"; 
+            }
             throw new RuntimeException("Erreur lors du déchiffrement", e);
         }
     }
@@ -108,17 +141,10 @@ public class EncryptionUtil {
      * @return Tableau contenant le message chiffré et le vecteur d'initialisation
      */
     public String[] encryptMessage(String content, Long userId) {
-        // Dans un système réel, nous récupérerions la clé de l'utilisateur depuis une base de données sécurisée
-        // Pour simplifier, nous générons une clé si elle n'existe pas déjà
-        String userKey = userKeys.computeIfAbsent(userId, k -> generateKey());
-        
-        // Générer un nouveau vecteur d'initialisation pour chaque message
+        // Récupérer la clé de l'utilisateur ou en générer une nouvelle si elle n'existe pas
+        String userKey = getUserKey(userId);
         String iv = generateIv();
-        
-        // Chiffrer le message
         String encryptedContent = encrypt(content, userKey, iv);
-        
-        // Retourner le message chiffré et le vecteur d'initialisation
         return new String[] { encryptedContent, iv };
     }
     
@@ -131,15 +157,48 @@ public class EncryptionUtil {
      * @return Contenu déchiffré du message
      */
     public String decryptMessage(String encryptedContent, String iv, Long userId) {
-        // Dans un système réel, nous récupérerions la clé de l'utilisateur depuis une base de données sécurisée
-        // Pour simplifier, nous vérifions si la clé existe déjà dans notre map
-        String userKey = userKeys.get(userId);
-        if (userKey == null) {
+        // Récupérer la clé de l'utilisateur depuis la base de données
+        Optional<UserKey> userKeyOpt = userKeyRepository.findByUserId(userId);
+        
+        if (userKeyOpt.isEmpty()) {
             // Si la clé n'existe pas, nous ne pouvons pas déchiffrer le message
-            throw new RuntimeException("Clé de déchiffrement non trouvée pour l'utilisateur " + userId);
+            System.out.println("Clé de déchiffrement non trouvée pour l'utilisateur " + userId);
+            return "[Message non déchiffrable]"; // Retourner un message par défaut au lieu de lancer une exception
         }
         
-        // Déchiffrer le message
-        return decrypt(encryptedContent, userKey, iv);
+        try {
+            // Déchiffrer le message avec la clé récupérée
+            return decrypt(encryptedContent, userKeyOpt.get().getEncryptionKey(), iv);
+        } catch (RuntimeException e) {
+            // Si une erreur se produit lors du déchiffrement, retourner un message par défaut
+            System.err.println("Erreur lors du déchiffrement d'un message pour l'utilisateur " + userId + ": " + e.getMessage());
+            return "[Message chiffré avec une ancienne clé]"; 
+        }
+    }
+    
+    /**
+     * Récupère la clé de chiffrement d'un utilisateur ou en génère une nouvelle si elle n'existe pas
+     * @param userId ID de l'utilisateur
+     * @return La clé de chiffrement
+     */
+    private String getUserKey(Long userId) {
+        Optional<UserKey> userKeyOpt = userKeyRepository.findByUserId(userId);
+        
+        if (userKeyOpt.isPresent()) {
+            return userKeyOpt.get().getEncryptionKey();
+        } else {
+            // Générer une nouvelle clé
+            String newKey = generateKey();
+            
+            // Récupérer l'utilisateur
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("Utilisateur non trouvé: " + userId));
+            
+            // Sauvegarder la clé
+            UserKey userKey = new UserKey(user, newKey);
+            userKeyRepository.save(userKey);
+            
+            return newKey;
+        }
     }
 }

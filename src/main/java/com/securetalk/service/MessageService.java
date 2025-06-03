@@ -92,7 +92,13 @@ public class MessageService {
             throw new SecurityException("Non autorisé à lire ce message");
         }
         
-        return encryptionUtil.decryptMessage(message.getEncryptedContent(), message.getIv(), userId);
+        try {
+            return encryptionUtil.decryptMessage(message.getEncryptedContent(), message.getIv(), userId);
+        } catch (Exception e) {
+            // Log l'erreur mais retourne un message par défaut pour éviter de bloquer l'application
+            System.err.println("Erreur lors du déchiffrement du message " + message.getId() + ": " + e.getMessage());
+            return "[Message non déchiffrable]"; 
+        }
     }
     
     /**

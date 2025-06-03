@@ -46,11 +46,26 @@ public class User {
     @Enumerated(EnumType.STRING)
     private UserStatus status = UserStatus.ONLINE;
     
+    private String firstName;
+    
+    private String lastName;
+    
+    private boolean isPrivate = false;
+    
+    private boolean allowMessages = true;
+    
+    private boolean showOnlineStatus = true;
+    
+    private LocalDateTime createdAt = LocalDateTime.now();
+    
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "user_roles", 
                joinColumns = @JoinColumn(name = "user_id"),
                inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<Role> roles = new HashSet<>();
+    
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private UserKey userKey;
     
     // Constructeur avec les champs obligatoires
     public User(String username, String email, String password) {
