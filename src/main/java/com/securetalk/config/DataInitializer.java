@@ -3,8 +3,12 @@ package com.securetalk.config;
 import com.securetalk.model.ERole;
 import com.securetalk.model.Role;
 import com.securetalk.model.User;
+import com.securetalk.model.UserKey;
 import com.securetalk.repository.RoleRepository;
+import com.securetalk.repository.UserKeyRepository;
 import com.securetalk.repository.UserRepository;
+import com.securetalk.util.EncryptionUtil;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,7 +28,13 @@ public class DataInitializer implements CommandLineRunner {
     private UserRepository userRepository;
 
     @Autowired
+    private UserKeyRepository userKeyRepository;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private EncryptionUtil encryptionUtil;
 
     @Override
     public void run(String... args) throws Exception {
@@ -33,6 +43,9 @@ public class DataInitializer implements CommandLineRunner {
         
         // Créer des utilisateurs de test si nécessaire
         initUsers();
+        
+        // Générer les clés de chiffrement pour les utilisateurs existants qui n'en ont pas
+        initUserKeys();
     }
 
     private void initRoles() {
@@ -74,6 +87,8 @@ public class DataInitializer implements CommandLineRunner {
             createTestUser("alice", "alice@securetalk.com", "alice123");
             createTestUser("bob", "bob@securetalk.com", "bob123");
             createTestUser("charlie", "charlie@securetalk.com", "charlie123");
+            createTestUser("diana", "diana@securetalk.com", "diana123");
+            createTestUser("eve", "eve@securetalk.com", "eve123");
             
             System.out.println("Utilisateurs de test créés avec succès");
         }
@@ -94,5 +109,44 @@ public class DataInitializer implements CommandLineRunner {
         user.setRoles(roles);
         
         userRepository.save(user);
+    }
+
+    /**
+     * Génère automatiquement les clés de chiffrement pour tous les utilisateurs
+     * qui n'en ont pas encore
+     */
+    private void initUserKeys() {
+        System.out.println("Vérification et génération des clés de chiffrement utilisateur...");
+        
+        // Récupérer tous les utilisateurs
+        Iterable<User> users = userRepository.findAll();
+        int keysGenerated = 0;
+        
+        for (User user : users) {
+            // Vérifier si l'utilisateur a déjà une clé
+            if (userKeyRepository.findByUser(user).isEmpty()) {
+                try {
+                    // Générer une nouvelle clé AES-256
+                    String encryptionKey = encryptionUtil.generateKey();
+                    
+                    // Créer et sauvegarder la clé utilisateur
+                    UserKey userKey = new UserKey(user, encryptionKey);
+                    userKeyRepository.save(userKey);
+                    
+                    keysGenerated++;
+                    System.out.println("Clé de chiffrement générée pour l'utilisateur: " + user.getUsername());
+                    
+                } catch (Exception e) {
+                    System.err.println("Erreur lors de la génération de la clé pour l'utilisateur " + 
+                                     user.getUsername() + ": " + e.getMessage());
+                }
+            }
+        }
+        
+        if (keysGenerated > 0) {
+            System.out.println("Génération terminée: " + keysGenerated + " clés de chiffrement créées");
+        } else {
+            System.out.println("Toutes les clés de chiffrement utilisateur sont déjà présentes");
+        }
     }
 }

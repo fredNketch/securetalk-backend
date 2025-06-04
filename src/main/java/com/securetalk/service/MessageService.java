@@ -16,6 +16,27 @@ import java.util.stream.Collectors;
 
 @Service
 public class MessageService {
+
+    /**
+     * Marque tous les messages reçus non lus d'une conversation comme lus pour un utilisateur
+     * @param conversationId L'ID de l'utilisateur partenaire (autre participant de la conversation)
+     * @param userId L'ID de l'utilisateur connecté
+     */
+    @Transactional
+    public void markConversationAsRead(Long conversationId, Long userId) {
+        User currentUser = userRepository.findById(userId)
+            .orElseThrow(() -> new NoSuchElementException("Utilisateur non trouvé"));
+        User partner = userRepository.findById(conversationId)
+            .orElseThrow(() -> new NoSuchElementException("Partenaire de conversation non trouvé"));
+        List<Message> messages = messageRepository.findConversation(partner, currentUser);
+        messages.stream()
+            .filter(m -> m.getRecipient().getId().equals(userId) && m.getStatus() != MessageStatus.READ)
+            .forEach(m -> {
+                m.setStatus(MessageStatus.READ);
+                messageRepository.save(m);
+            });
+    }
+
     
     @Autowired
     private MessageRepository messageRepository;
@@ -26,8 +47,8 @@ public class MessageService {
     @Autowired
     private EncryptionUtil encryptionUtil;
     
-    /**
-     * Envoie un message d'un utilisateur à un autre
+     /**
+     * Envoie un message d'un utilisateur à un autre avec double chiffrement
      * 
      * @param senderId ID de l'expéditeur
      * @param recipientId ID du destinataire
@@ -42,12 +63,15 @@ public class MessageService {
         User recipient = userRepository.findById(recipientId)
                 .orElseThrow(() -> new NoSuchElementException("Destinataire non trouvé"));
         
-        // Chiffrer le contenu du message avec la clé publique du destinataire
-        String[] encryptionResult = encryptionUtil.encryptMessage(content, recipientId);
-        String encryptedContent = encryptionResult[0];
-        String iv = encryptionResult[1];
+        // Chiffrer le contenu du message pour les deux parties
+        String[] encryptionResult = encryptionUtil.encryptMessageForBoth(content, senderId, recipientId);
+        String encryptedForRecipient = encryptionResult[0];
+        String ivRecipient = encryptionResult[1];
+        String encryptedForSender = encryptionResult[2];
+        String ivSender = encryptionResult[3];
         
-        Message message = new Message(sender, recipient, encryptedContent, iv);
+        Message message = new Message(sender, recipient, encryptedForRecipient, ivRecipient, 
+                                     encryptedForSender, ivSender);
         return messageRepository.save(message);
     }
     
@@ -81,22 +105,22 @@ public class MessageService {
     
     /**
      * Déchiffre le contenu d'un message pour un utilisateur spécifique
+     * Utilise automatiquement la bonne version chiffrée selon l'utilisateur
      * 
      * @param message Le message à déchiffrer
      * @param userId L'ID de l'utilisateur qui souhaite lire le message
      * @return Le contenu déchiffré du message
      */
     public String decryptMessage(Message message, Long userId) {
-        // Vérifier si l'utilisateur est autorisé à lire ce message
-        if (!message.getSender().getId().equals(userId) && !message.getRecipient().getId().equals(userId)) {
-            throw new SecurityException("Non autorisé à lire ce message");
-        }
-        
         try {
-            return encryptionUtil.decryptMessage(message.getEncryptedContent(), message.getIv(), userId);
+            return encryptionUtil.decryptMessageForUser(message, userId);
+        } catch (SecurityException e) {
+            // Re-lancer les exceptions de sécurité
+            throw e;
         } catch (Exception e) {
             // Log l'erreur mais retourne un message par défaut pour éviter de bloquer l'application
-            System.err.println("Erreur lors du déchiffrement du message " + message.getId() + ": " + e.getMessage());
+            System.err.println("Erreur lors du déchiffrement du message " + message.getId() + 
+                             " pour l'utilisateur " + userId + ": " + e.getMessage());
             return "[Message non déchiffrable]"; 
         }
     }
@@ -113,5 +137,21 @@ public class MessageService {
                 .orElseThrow(() -> new NoSuchElementException("Utilisateur non trouvé"));
         
         return messageRepository.findConversationPartners(user);
+    }
+
+    /**
+     * Méthode utilitaire pour récupérer le contenu déchiffré d'un message
+     * sans lever d'exception en cas d'erreur
+     * 
+     * @param message Le message à déchiffrer
+     * @param userId L'ID de l'utilisateur qui souhaite lire le message
+     * @return Le contenu déchiffré ou un message d'erreur si le déchiffrement échoue
+     */
+    public String safeDecryptMessage(Message message, Long userId) {
+        try {
+            return decryptMessage(message, userId);
+        } catch (Exception e) {
+            return "[Message non déchiffrable]";
+        }
     }
 }

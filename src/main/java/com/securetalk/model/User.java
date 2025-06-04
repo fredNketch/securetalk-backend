@@ -64,7 +64,7 @@ public class User {
                inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<Role> roles = new HashSet<>();
     
-    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private UserKey userKey;
     
     // Constructeur avec les champs obligatoires
@@ -72,5 +72,6 @@ public class User {
         this.username = username;
         this.email = email;
         this.password = password;
+        this.createdAt = LocalDateTime.now();
     }
 }
